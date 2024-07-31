@@ -147,11 +147,21 @@ def calibrate_and_save_images(science_images, flat_images, bias_images, output_f
 
     if stacked_per_date:
         reference_image = stacked_per_date[0]
-        stacked_final = align_and_stack_images([(ccd.to_hdu(), '') for ccd in stacked_per_date], reference_image, True)
+        # Align and stack the final two images using astroalign
+        final_stacked_data = stacked_per_date[0].data
+        final_stacked_header = stacked_per_date[0].header
+        for stacked_ccd in stacked_per_date[1:]:
+            try:
+                aligned_data, _ = aa.register(stacked_ccd.data, final_stacked_data, max_control_points=150, detection_sigma=2.5, min_area=4)
+                final_stacked_data += light_background_subtraction(aligned_data)
+            except Exception as alignment_error:
+                print(f"Error in astroalign for final stacking: {alignment_error}")
 
-        if stacked_final:
-            fits.writeto(os.path.join(output_folder, 'stacked_image_final.fits'), stacked_final.data, stacked_final.meta, overwrite=True)
-            return stacked_final
+        final_stacked_data /= len(stacked_per_date)
+        stacked_final = CCDData(final_stacked_data.astype('float32'), unit='adu', meta=final_stacked_header)
+
+        fits.writeto(os.path.join(output_folder, 'stacked_image_final.fits'), stacked_final.data, stacked_final.meta, overwrite=True)
+        return stacked_final
     return None
 
 def non_local_means_denoise(image):
